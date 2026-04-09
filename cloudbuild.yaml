@@ -1,0 +1,160 @@
+steps:
+  # 1. Setup - Configure Docker Authentication
+  - id: "configure-docker"
+    name: "gcr.io/cloud-builders/gcloud"
+    args: ["auth", "configure-docker", "${_REGION}-docker.pkg.dev"]
+
+  # 2. Frontend - Generate .env file
+  - id: "frontend-gen-env"
+    name: "bash"
+    dir: "frontend"
+    args:
+      - "-c"
+      - |
+        cat << EOF > .env
+        NEXT_PUBLIC_APP_NAME=${_NEXT_PUBLIC_APP_NAME}
+        NEXT_PUBLIC_API_URL=${_NEXT_PUBLIC_API_URL}
+        EOF
+
+  # 3. Artifact Registry - Setup Frontend Repository
+  - id: "frontend-setup-repo"
+    name: "gcr.io/cloud-builders/gcloud"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        gcloud artifacts repositories describe frontend \
+          --location=${_REGION} \
+          --project=${PROJECT_ID} &>/dev/null || \
+        gcloud artifacts repositories create frontend \
+          --repository-format=docker \
+          --location=${_REGION} \
+          --project=${PROJECT_ID}
+
+  # 4. Artifact Registry - Setup Backend Repository
+  - id: "backend-setup-repo"
+    name: "gcr.io/cloud-builders/gcloud"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        gcloud artifacts repositories describe backend \
+          --location=${_REGION} \
+          --project=${PROJECT_ID} &>/dev/null || \
+        gcloud artifacts repositories create backend \
+          --repository-format=docker \
+          --location=${_REGION} \
+          --project=${PROJECT_ID}
+
+  # 5. Frontend - Build Docker Image
+  - id: "frontend-build"
+    name: "gcr.io/cloud-builders/docker"
+    dir: "frontend"
+    args: 
+      - "build"
+      - "-t"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/frontend/image:${COMMIT_SHA}"
+      - "-t"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/frontend/image:latest"
+      - "."
+
+  # 6. Backend - Build Docker Image
+  - id: "backend-build"
+    name: "gcr.io/cloud-builders/docker"
+    dir: "backend"
+    args: 
+      - "build"
+      - "-t"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/backend/image:${COMMIT_SHA}"
+      - "-t"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/backend/image:latest"
+      - "."
+
+  # 7. Frontend - Push Image to Artifact Registry
+  - id: "frontend-push"
+    name: "gcr.io/cloud-builders/docker"
+    args: 
+      - "push"
+      - "--all-tags"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/frontend/image"
+    waitFor: ["frontend-build"]
+
+  # 8. Backend - Push Image to Artifact Registry
+  - id: "backend-push"
+    name: "gcr.io/cloud-builders/docker"
+    args: 
+      - "push"
+      - "--all-tags"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/backend/image"
+    waitFor: ["backend-build"]
+
+  # 9. Frontend - Deploy to Cloud Run
+  - id: "frontend-deploy"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "gcloud"
+    args:
+      - "run"
+      - "deploy"
+      - "${_FRONTEND_SERVICE_NAME}"
+      - "--image"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/frontend/image:${COMMIT_SHA}"
+      - "--region"
+      - "${_REGION}"
+      - "--platform"
+      - "managed"
+      - "--allow-unauthenticated"
+      - "--port"
+      - "3000"
+      - "--min-instances"
+      - "0"
+      - "--max-instances"
+      - "1"
+      - "--memory"
+      - "256Mi"
+      - "--concurrency"
+      - "500"
+      - "--timeout"
+      - "300"
+      - "--cpu"
+      - "1"
+    waitFor: ["frontend-push"]
+
+  # 10. Backend - Deploy to Cloud Run
+  - id: "backend-deploy"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "gcloud"
+    args:
+      - "run"
+      - "deploy"
+      - "${_BACKEND_SERVICE_NAME}"
+      - "--image"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/backend/image:${COMMIT_SHA}"
+      - "--region"
+      - "${_REGION}"
+      - "--platform"
+      - "managed"
+      - "--allow-unauthenticated"
+      - "--port"
+      - "3000"
+      - "--min-instances"
+      - "0"
+      - "--max-instances"
+      - "1"
+      - "--memory"
+      - "512Mi"
+      - "--concurrency"
+      - "500"
+      - "--set-env-vars"
+      - "MYSQL_PRISMA_URL=${_MYSQL_PRISMA_URL}"
+    waitFor: ["backend-push"]
+
+substitutions:
+  _REGION: "us-central1"
+  _FRONTEND_SERVICE_NAME: "frontend"
+  _BACKEND_SERVICE_NAME: "backend"
+  _NEXT_PUBLIC_APP_NAME: "Cloud Mastery"
+  _NEXT_PUBLIC_API_URL: ""
+  _MYSQL_PRISMA_URL: ""
+
+options:
+  logging: CLOUD_LOGGING_ONLY
