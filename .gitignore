@@ -1,2 +1,5 @@
 .DS_Store
 cloud-sql-proxy
+setup-wif.sh
+.github/workflows/deploy-backend.yml
+.github/workflows/deploy-frontend.yml

@@ -1,5 +1,5 @@
 # Specify the Node.js version explicitly
-FROM node:20.10.0-alpine AS base
+FROM node:20.19.6-alpine AS base
 
 # Set working directory
 WORKDIR /app
@@ -14,9 +14,9 @@ COPY package*.json ./
 # Install dependencies with caching
 RUN \
   if [ -f package-lock.json ]; then \
-    npm ci --legacy-peer-deps --prefer-offline; \
+  npm ci --legacy-peer-deps --prefer-offline; \
   else \
-    npm install --legacy-peer-deps --prefer-offline; \
+  npm install --legacy-peer-deps --prefer-offline; \
   fi
 
 # Rebuild the source code only when needed
@@ -31,12 +31,12 @@ COPY . .
 
 # Set environment variables and build
 RUN if [ -f .env ]; then \
-      set -a && . ./.env && set +a; \
-    else \
-      export NEXT_PUBLIC_APP_NAME="${NEXT_PUBLIC_APP_NAME}"; \
-      export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL}"; \
-    fi && \
-    npm run build --legacy-peer-deps
+  set -a && . ./.env && set +a; \
+  else \
+  export NEXT_PUBLIC_APP_NAME="${NEXT_PUBLIC_APP_NAME}"; \
+  export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL}"; \
+  fi && \
+  npm run build --legacy-peer-deps
 
 # Build with output tracing for better optimization
 # RUN npm run build --legacy-peer-deps (moved to the builder stage)
@@ -45,7 +45,7 @@ RUN if [ -f .env ]; then \
 FROM base AS runner
 
 RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 nextjs
+  adduser --system --uid 1001 nextjs
 
 # Copy only necessary files
 COPY --from=builder /app/public ./public
