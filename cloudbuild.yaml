@@ -51,12 +51,14 @@ steps:
     name: "gcr.io/cloud-builders/docker"
     dir: "frontend"
     args:
-      - "build"
-      - "-t"
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/frontend/image:${COMMIT_SHA}"
-      - "-t"
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/frontend/image:latest"
-      - "."
+      - "-c"
+      - |
+        docker pull ${_REGION}-docker.pkg.dev/${PROJECT_ID}/frontend/image:latest || exit 0
+        docker build \
+          -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/frontend/image:${COMMIT_SHA} \
+          -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/frontend/image:latest \
+          --cache-from ${_REGION}-docker.pkg.dev/${PROJECT_ID}/frontend/image:latest \
+          .
 
   # 6. Backend - Build Docker Image
   - id: "backend-build"
