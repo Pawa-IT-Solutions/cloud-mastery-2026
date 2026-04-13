@@ -50,6 +50,7 @@ steps:
   - id: "frontend-build"
     name: "gcr.io/cloud-builders/docker"
     dir: "frontend"
+    entrypoint: "bash"
     args:
       - "-c"
       - |
