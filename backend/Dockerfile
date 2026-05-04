@@ -1,5 +1,5 @@
 # Dependencies stage
-FROM node:18-alpine AS deps
+FROM node:20-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache libc6-compat openssl
 COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
@@ -13,7 +13,7 @@ RUN \
 RUN npx prisma generate
 
 # Builder stage
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 WORKDIR /app
 RUN apk add --no-cache openssl
 COPY --from=deps /app/node_modules ./node_modules
@@ -22,7 +22,7 @@ COPY . .
 RUN npm run build
 
 # Runner stage
-FROM node:18-alpine AS runner
+FROM node:20-alpine AS runner
 WORKDIR /app
 RUN apk add --no-cache openssl
 
