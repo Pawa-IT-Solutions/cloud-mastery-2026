@@ -13,7 +13,20 @@ export class OrderService {
 
   async create(createOrderDto: CreateOrderDto) {
     const { items, ...orderData } = createOrderDto;
-    
+
+    // Fetch customer upfront to denormalize city, name, phone into each order_detail
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: orderData.customerId },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    // Fetch all products in this order to denormalize name and category
+    const productIds = items.map(item => item.productId);
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: productIds } },
+    });
+    const productMap = new Map(products.map(p => [p.id, p]));
+
     // Calculate total amount from items
     const calculatedTotal = items.reduce((sum, item) => {
       return sum + (Number(item.unitCost) * item.quantity);
@@ -27,42 +40,43 @@ export class OrderService {
         description: orderData.description,
         paymentMethod: orderData.paymentMethod,
         shippingAddress: orderData.shippingAddress,
-        //@ts-ignore
         status: orderData.status || 'pending',
         items: {
-          create: items.map(item => ({
-            customerId: orderData.customerId,
-            productId: item.productId,
-            unitCost: new Prisma.Decimal(item.unitCost),
-            quantity: item.quantity,
-            totalCost: new Prisma.Decimal(Number(item.unitCost) * item.quantity)
-          }))
+          create: items.map(item => {
+            const product = productMap.get(item.productId);
+            return {
+              product: { connect: { id: item.productId } },
+              customerName: `${customer.firstName} ${customer.lastName}`,
+              phoneNumber: customer.phone,
+              productName: product?.name ?? '',
+              category: product?.category ?? '',
+              city: customer.city || orderData.shippingAddress || 'Unknown',
+              unitCost: new Prisma.Decimal(item.unitCost),
+              quantity: item.quantity,
+              totalCost: new Prisma.Decimal(Number(item.unitCost) * item.quantity),
+              paymentMethod: orderData.paymentMethod,
+              status: orderData.status || 'pending',
+              orderDate: orderData.orderDate,
+            };
+          })
         }
       },
       include: {
         customer: {
-          select: {
-            firstName: true,
-            lastName: true,
-          }
+          select: { firstName: true, lastName: true }
         },
         items: {
           include: {
-            product: {
-              select: {
-                name: true,
-              }
-            }
+            product: { select: { name: true } }
           }
         }
       }
-    });
+    }) as any; // Cast to any to bypass temporary type sync issues
 
-    // Transform the result to include names
     return {
       ...order,
       customerName: `${order.customer.firstName} ${order.customer.lastName}`,
-      items: order.items.map(item => ({
+      items: order.items.map((item: any) => ({
         ...item,
         productName: item.product.name
       }))
@@ -178,65 +192,85 @@ export class OrderService {
       throw new NotFoundException('Order not found');
     }
 
+    // Fetch customer upfront to denormalize city, name, phone into each updated order_detail
+    const customerId = updateOrderDto.customerId ?? existingOrder.customerId;
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
     // Calculate new total if items are being updated
-    // Initialize with existing order amount
     let calculatedTotal = existingOrder.orderAmount;
-    
+    let productMap = new Map<string, any>();
+
     if (updateOrderDto.items) {
-      // Convert the reduced number to Decimal
       calculatedTotal = new Prisma.Decimal(
         updateOrderDto.items.reduce((sum, item) => {
           return sum + (Number(item.unitCost) * item.quantity);
         }, 0)
       );
+
+      // Fetch products to denormalize name and category
+      const productIds = updateOrderDto.items.map(item => item.productId);
+      const products = await this.prisma.product.findMany({
+        where: { id: { in: productIds } },
+      });
+      productMap = new Map(products.map(p => [p.id, p]));
     }
+
+    const paymentMethod = updateOrderDto.paymentMethod ?? existingOrder.paymentMethod;
+    const status = updateOrderDto.status ?? existingOrder.status;
+    const orderDate = updateOrderDto.orderDate ?? existingOrder.orderDate;
 
     const updatedOrder = await this.prisma.order.update({
       where: { id },
       data: {
-        customerId: updateOrderDto.customerId,
+        customerId,
         orderAmount: new Prisma.Decimal(calculatedTotal),
-        orderDate: updateOrderDto.orderDate,
+        orderDate,
         description: updateOrderDto.description,
-        paymentMethod: updateOrderDto.paymentMethod,
+        paymentMethod,
         shippingAddress: updateOrderDto.shippingAddress,
-        status: updateOrderDto.status,
+        status,
         ...(updateOrderDto.items && {
           items: {
-            deleteMany: {}, // Remove existing items
-            create: updateOrderDto.items.map(item => ({
-              customerId: updateOrderDto.customerId,
-              productId: item.productId,
-              unitCost: new Prisma.Decimal(item.unitCost),
-              quantity: item.quantity,
-              totalCost: new Prisma.Decimal(Number(item.unitCost) * item.quantity)
-            }))
+            deleteMany: {},
+            create: updateOrderDto.items.map(item => {
+              const product = productMap.get(item.productId);
+              return {
+                product: { connect: { id: item.productId } },
+                customerName: `${customer.firstName} ${customer.lastName}`,
+                phoneNumber: customer.phone,
+                productName: product?.name ?? '',
+                category: product?.category ?? '',
+                city: customer.city || updateOrderDto.shippingAddress || 'Unknown',
+                unitCost: new Prisma.Decimal(item.unitCost),
+                quantity: item.quantity,
+                totalCost: new Prisma.Decimal(Number(item.unitCost) * item.quantity),
+                paymentMethod,
+                status,
+                orderDate,
+              };
+            })
           }
         })
       },
       include: {
         customer: {
-          select: {
-            firstName: true,
-            lastName: true,
-          }
+          select: { firstName: true, lastName: true }
         },
         items: {
           include: {
-            product: {
-              select: {
-                name: true,
-              }
-            }
+            product: { select: { name: true } }
           }
         }
       }
-    });
+    }) as any;
 
     return {
       ...updatedOrder,
       customerName: `${updatedOrder.customer.firstName} ${updatedOrder.customer.lastName}`,
-      items: updatedOrder.items.map(item => ({
+      items: updatedOrder.items.map((item: any) => ({
         ...item,
         productName: item.product.name
       }))

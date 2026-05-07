@@ -130,12 +130,16 @@ async function main() {
       const customer = faker.helpers.arrayElement(createdCustomers);
       const orderDate = faker.date.recent({ days: 90 }); // Random date within last 90 days
       const orderNumber = `ORD-${Date.now()}-${faker.string.alphanumeric(6).toUpperCase()}`;
-      
+
+      // Generate paymentMethod and status before orderItems so they can be copied into each detail row
+      const paymentMethod = faker.helpers.arrayElement(paymentMethods);
+      const status = faker.helpers.arrayElement(statuses);
+
       // Randomly select 1-5 products for this order
       const numberOfItems = faker.number.int({ min: 1, max: 5 });
       const selectedProducts = faker.helpers.arrayElements(createdProducts, numberOfItems);
       
-      // Calculate order total and create order items
+      // Calculate order total and create order items (denormalized with parent order fields)
       let orderTotal = 0;
       const orderItems = selectedProducts.map(product => {
         const quantity = faker.number.int({ min: 1, max: 5 });
@@ -143,11 +147,18 @@ async function main() {
         orderTotal += itemTotal;
 
         return {
-          customerId: customer.id,
           productId: product.id,
+          customerName: `${customer.firstName} ${customer.lastName}`,
+          phoneNumber: customer.phone,
+          productName: product.name,
+          category: product.category,
           unitCost: product.unitCost,
           quantity: quantity,
           totalCost: itemTotal,
+          paymentMethod: paymentMethod, // denormalized copy from parent order
+          status: status,               // denormalized copy from parent order
+          city: customer.city ?? '',
+          orderDate: orderDate,         // denormalized copy from parent order
         };
       });
 
@@ -157,9 +168,9 @@ async function main() {
         orderAmount: orderTotal,
         orderDate: orderDate,
         description: faker.lorem.sentence(),
-        paymentMethod: faker.helpers.arrayElement(paymentMethods),
+        paymentMethod: paymentMethod,
         shippingAddress: `${customer.address}, ${customer.city}`,
-        status: faker.helpers.arrayElement(statuses),
+        status: status,
         items: {
           create: orderItems
         }
@@ -179,6 +190,12 @@ async function main() {
           );
           
           const successCount = batchResults.filter(result => result.status === 'fulfilled').length;
+          // Log any failures with their actual error messages
+          batchResults.forEach((result, idx) => {
+            if (result.status === 'rejected') {
+              console.error(`Order ${idx} in batch failed:`, result.reason?.message ?? result.reason);
+            }
+          });
           console.log(`Created orders batch: ${Math.min(i + 1, 500)}/500 (${successCount} successful in this batch)`);
           
         } catch (error) {

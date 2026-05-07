@@ -20,6 +20,9 @@ export class CreateOrderDto {
   @IsNotEmpty()
   shippingAddress: string;
 
+  @IsOptional()
+  status?: string;
+
   @IsNotEmpty()
   @IsArray()
   @ValidateNested({ each: true })
